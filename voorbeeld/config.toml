@@ -1,0 +1,53 @@
+# Instellingen voor het scherm. Zet dit bestand als "config.toml" in de
+# Dropbox-map, naast de foto's en video's. Wijzigingen worden automatisch
+# opgepikt (bij de volgende controle, zie [sync]). Bevat dit bestand een
+# fout, dan blijven de vorige instellingen gewoon gelden.
+
+[display]
+image_duration = 10        # seconden per foto
+order = "name"             # "name" (alfabetisch), "newest" (nieuwste eerst) of "random"
+video_sound = false
+max_video_duration = 0     # max. seconden per video, 0 = hele video
+scaling = "fit"            # "fit" (zwarte randen) of "fill" (beeldvullend, snijdt bij)
+rotate = 0                 # 0, 90, 180 of 270 (scherm in staande stand)
+
+[sync]
+interval = 300             # elke 5 minuten kijken of er iets is veranderd in Dropbox
+
+# --- Bijzonderheden per bestand -----------------------------------------
+# Gebruik de exacte bestandsnaam tussen aanhalingstekens.
+
+[files."openingstijden.jpg"]
+duration = 20              # deze foto langer tonen
+
+[files."kerstactie.mp4"]
+from = 2026-12-01          # alleen tonen in deze periode
+until = 2026-12-26
+
+[files."oud-logo.png"]
+skip = true                # staat in de map, maar niet tonen
+
+# --- Automatisch aan en uit ---------------------------------------------
+# Per dag: "on", "off" of tijden zoals "08:00-18:00" (meerdere met komma).
+# Een dag die hier niet staat is de hele dag aan.
+
+[schedule]
+enabled = true
+monday    = "07:30-18:00"
+tuesday   = "07:30-18:00"
+wednesday = "07:30-18:00"
+thursday  = "07:30-18:00"
+friday    = "07:30-21:00"
+saturday  = "09:00-17:00"
+sunday    = "off"
+
+[schedule.dates]           # uitzonderingen op een datum gaan voor de weekdag
+2026-12-25 = "off"
+2026-12-31 = "09:00-16:00"
+
+# --- Nieuws (komt in een latere versie) ---------------------------------
+[news]
+enabled = false
+url = ""
+every = 5                  # na elke 5 foto's/video's een nieuwsbericht
+duration = 15

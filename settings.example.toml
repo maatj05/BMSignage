@@ -1,0 +1,27 @@
+# Lokale instellingen op de Raspberry Pi (niet in Dropbox!).
+# Kopieer naar settings.toml en vul de Dropbox-gegevens in.
+
+[dropbox]
+app_key = ""
+refresh_token = ""        # krijg je met: python3 get_refresh_token.py <app_key>
+# Map in Dropbox. Bij een app met "App folder"-toegang is "" de app-map zelf
+# (Dropbox/Apps/<appnaam>). Bij "Full Dropbox" bv. "/Scherm".
+folder = ""
+
+[paths]
+# Lokale kopie van de Dropbox-map; hieruit wordt afgespeeld (werkt dus ook offline).
+cache_dir = "~/.cache/dropbox-signage"
+
+[player]
+# Werkt op Raspberry Pi OS Lite (zonder desktop). Met desktop: ["--hwdec=auto-safe"]
+mpv_args = ["--vo=gpu", "--gpu-context=drm", "--hwdec=auto-safe"]
+
+[power]
+# Hoe het scherm uit gaat buiten de tijden in [schedule] van config.toml:
+#   "black"    alleen zwart beeld (werkt altijd)
+#   "cec"      TV in stand-by via HDMI-CEC (sudo apt install v4l-utils)
+#   "vcgencmd" HDMI-signaal uit, monitor gaat slapen (alleen met fkms/legacy driver)
+#   "command"  eigen commando's hieronder
+method = "black"
+on_command = ""
+off_command = ""

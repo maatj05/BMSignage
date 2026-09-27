@@ -1,0 +1,15 @@
+[Unit]
+Description=Dropbox folder on the screen
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=__USER__
+SupplementaryGroups=video render audio
+WorkingDirectory=__DIR__
+ExecStart=/usr/bin/python3 -m signage.main --settings __DIR__/settings.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
