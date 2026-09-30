@@ -46,7 +46,8 @@ Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
 
 3. **Code op de Pi zetten en installeren:**
    ```sh
-   git clone <deze repo> && cd <repo>/dropbox-signage
+   sudo apt install -y git
+   git clone https://github.com/maatj05/BMSignage.git && cd BMSignage
    ./install.sh
    ```
 
