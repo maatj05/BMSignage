@@ -9,12 +9,13 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+DEFAULT_APP_KEY = "q34alcs3we24vx7"  # public client id of the Dropbox app, not a secret
 DEFAULT_MPV_ARGS = ["--vo=gpu", "--gpu-context=drm", "--hwdec=auto-safe"]
 
 
 @dataclass
 class Settings:
-    app_key: str = ""
+    app_key: str = DEFAULT_APP_KEY
     refresh_token: str = ""
     folder: str = ""
     base_folder: str = "/Mediakranten/Present-it"
@@ -38,7 +39,7 @@ def load(path: Path) -> Settings:
     with path.open("rb") as f:
         data = tomllib.load(f)
     dropbox = data.get("dropbox", {})
-    settings.app_key = dropbox.get("app_key", "")
+    settings.app_key = dropbox.get("app_key") or settings.app_key
     settings.refresh_token = dropbox.get("refresh_token", "")
     settings.folder = dropbox.get("folder", "")
     settings.base_folder = dropbox.get("base_folder", settings.base_folder)

@@ -47,12 +47,16 @@ button, a.button { display:inline-block; padding:10px 16px; font:inherit; font-w
           text-decoration:none; cursor:pointer; }
 button.secondary { background:transparent; color:var(--accent); border:1px solid var(--line); }
 ul.folders { list-style:none; padding:0; margin:0; }
-ul.folders li { border-top:1px solid var(--line); }
+ul.folders li { display:flex; align-items:center; gap:12px; border-top:1px solid var(--line); }
 ul.folders li:first-child { border-top:0; }
-ul.folders button { width:100%; text-align:left; background:transparent; color:var(--fg);
-                    font-weight:400; padding:12px 4px; border-radius:0; }
-ul.folders button:hover { background:var(--bg); }
-ul.folders .current { font-weight:700; }
+ul.folders a.open { flex:1; min-width:0; display:flex; justify-content:space-between; gap:8px;
+                    padding:12px 4px; color:var(--fg); text-decoration:none; overflow-wrap:anywhere; }
+ul.folders a.open:hover { background:var(--bg); }
+ul.folders .chev { color:var(--muted); }
+ul.folders button { padding:6px 12px; }
+ul.folders li > .ok { white-space:nowrap; }
+.crumbs { overflow-wrap:anywhere; } .crumbs a { color:var(--accent); }
+section > form { margin-bottom:12px; }
 dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; margin:0; }
 dt { color:var(--muted); } dd { margin:0; overflow-wrap:anywhere; }
 ol { padding-left:20px; margin:0 0 12px; }
@@ -75,6 +79,19 @@ def config_template() -> bytes:
 
 def esc(value) -> str:
     return html.escape(str(value), quote=True)
+
+
+def split_relative(path: str) -> list[str]:
+    """"Kantine/Zomer" -> ["Kantine", "Zomer"]; refuses anything that could climb out."""
+    parts = [p for p in path.strip("/").split("/")] if path.strip("/") else []
+    if any(p in ("", ".", "..") for p in parts):
+        raise ValueError(f"Ongeldige map: {path!r}")
+    return parts
+
+
+def browse_link(parts: list[str]) -> str:
+    # Always explicit: a bare "/" opens next to the presentation on screen instead.
+    return "/?" + urllib.parse.urlencode({"map": "/".join(parts)})
 
 
 class SetupApp:
@@ -119,12 +136,28 @@ class SetupApp:
         with self._lock:
             self._pending = None
 
-    def choose_folder(self, name: str) -> str:
+    def _path(self, parts: list[str]) -> str:
+        return "/".join([self.base_folder, *parts])
+
+    def relative_to_base(self, folder: str) -> list[str] | None:
+        """Parts of `folder` below the base folder, or None when it lies outside it."""
+        if folder.lower() == self.base_folder.lower():
+            return []
+        prefix = self.base_folder.lower() + "/"
+        if not folder.lower().startswith(prefix):
+            return None
+        return folder[len(prefix):].split("/")
+
+    def choose_folder(self, relative: str) -> str:
+        parts = split_relative(relative)
+        if not parts:
+            raise ValueError("Kies een map.")
         client = self._client()
-        # Only accept a name that really is a subfolder, so the form can't point elsewhere.
-        if name not in client.list_subfolders(self.base_folder):
-            raise ValueError(f"Map '{name}' bestaat niet (meer) in {self.base_folder}.")
-        folder = f"{self.base_folder}/{name}"
+        # Only accept a folder that really exists under the base, so the form can't point elsewhere.
+        parent, name = self._path(parts[:-1]), parts[-1]
+        if name not in client.list_subfolders(parent):
+            raise ValueError(f"Map '{name}' bestaat niet (meer) in {parent}.")
+        folder = self._path(parts)
         try:
             created = client.upload_if_missing(f"{folder}/{CONFIG_FILENAME}", config_template())
             note = (f"Er staat nu een {CONFIG_FILENAME} in die map." if created
@@ -134,7 +167,7 @@ class SetupApp:
             note = (f"Let op: {CONFIG_FILENAME} kon niet worden aangemaakt ({e}). Geef de app het "
                     "recht files.content.write en koppel opnieuw; tot dan gelden de standaardinstellingen.")
         self.store.update(folder=folder)
-        return f"Het scherm toont nu '{name}'. {note}"
+        return f"Het scherm toont nu '{'/'.join(parts)}'. {note}"
 
     # --- pages --------------------------------------------------------------
 
@@ -156,7 +189,7 @@ class SetupApp:
         with self._lock:
             self._flash = (text, good)
 
-    def index(self) -> str:
+    def index(self, browse: str | None = None) -> str:
         state = self.store.get()
         parts = [self.take_flash()]
         if state.linked:
@@ -165,7 +198,7 @@ class SetupApp:
                 "<form method='post' action='/link/start'>"
                 f"<input type='hidden' name='app_key' value='{esc(state.app_key)}'>"
                 "<button class='secondary'>Opnieuw koppelen</button></form></section>")
-            parts.append(self.folder_section(state))
+            parts.append(self.folder_section(state, browse))
             if state.folder:
                 parts.append(self.status_section(state))
         else:
@@ -194,24 +227,53 @@ class SetupApp:
             "<input type='text' name='code' placeholder='Code van Dropbox' autocomplete='off' required>"
             "<button>Koppelen</button></form></section>")
 
-    def folder_section(self, state) -> str:
-        head = f"<section><h2>2. Presentatie kiezen</h2><p class='muted'>Mappen in {esc(self.base_folder)}</p>"
+    def folder_section(self, state, browse: str | None) -> str:
+        current = self.relative_to_base(state.folder) if state.folder else None
+        if browse is None:  # start next to the presentation that is on screen now
+            parts = current[:-1] if current else []
+        else:
+            try:
+                parts = split_relative(browse)
+            except ValueError:
+                parts = []
+
+        crumbs = [f"<a href='{browse_link([])}'>{esc(self.base_folder.rsplit('/', 1)[-1])}</a>"]
+        crumbs += [f"<a href='{esc(browse_link(parts[:i + 1]))}'>{esc(p)}</a>" for i, p in enumerate(parts)]
+        head = ("<section><h2>2. Presentatie kiezen</h2>"
+                f"<p class='crumbs'>{' › '.join(crumbs)}</p>")
+        if parts:
+            if current is not None and [p.lower() for p in parts] == [p.lower() for p in current]:
+                head += "<p class='ok'>Deze map staat nu op het scherm</p>"
+            else:
+                head += self._pick_form(parts, f"Deze map ({parts[-1]}) tonen", "secondary")
+
         try:
-            names = self._client().list_subfolders(self.base_folder)
+            names = self._client().list_subfolders(self._path(parts))
         except Exception as e:
             return head + f"<p class='err'>Kan de mappen niet ophalen: {esc(e)}</p></section>"
         if not names:
-            return head + "<p>Er staan nog geen mappen in. Maak er een aan in Dropbox en ververs deze pagina.</p></section>"
-        current = state.folder.rsplit("/", 1)[-1].lower() if state.folder else None
+            text = ("Geen submappen." if parts else
+                    "Er staan nog geen mappen in. Maak er een aan in Dropbox en ververs deze pagina.")
+            return head + f"<p class='muted'>{text}</p></section>"
+
+        current_lower = [p.lower() for p in current] if current else None
         items = []
         for name in names:
-            is_current = name.lower() == current
-            label = f"{esc(name)}{' &nbsp;✓ nu op het scherm' if is_current else ''}"
-            items.append(
-                "<li><form method='post' action='/folder'>"
-                f"<input type='hidden' name='name' value='{esc(name)}'>"
-                f"<button class='{'current' if is_current else ''}'>{label}</button></form></li>")
+            child = [*parts, name]
+            on_screen = current_lower == [p.lower() for p in child]
+            inside = (current_lower is not None and len(current_lower) > len(child)
+                      and current_lower[:len(child)] == [p.lower() for p in child])
+            label = esc(name) + (" <span class='muted'>(bevat de huidige)</span>" if inside else "")
+            action = ("<span class='ok'>✓ op het scherm</span>" if on_screen
+                      else self._pick_form(child, "Tonen"))
+            items.append(f"<li><a class='open' href='{esc(browse_link(child))}'>"
+                         f"<span>📁 {label}</span><span class='chev'>›</span></a>{action}</li>")
         return head + f"<ul class='folders'>{''.join(items)}</ul></section>"
+
+    def _pick_form(self, parts: list[str], label: str, css: str = "") -> str:
+        return ("<form method='post' action='/folder'>"
+                f"<input type='hidden' name='path' value='{esc('/'.join(parts))}'>"
+                f"<button class='{css}'>{esc(label)}</button></form>")
 
     def status_section(self, state) -> str:
         s = self.status
@@ -248,10 +310,12 @@ def make_handler(app: SetupApp):
             return {k: v[0] for k, v in fields.items()}
 
         def do_GET(self):
-            if self.path.split("?")[0] != "/":
+            url = urllib.parse.urlsplit(self.path)
+            if url.path != "/":
                 return self._send(app.page("<p>Niet gevonden. <a href='/'>Terug</a></p>"),
                                   HTTPStatus.NOT_FOUND)
-            self._send(app.index())
+            browse = urllib.parse.parse_qs(url.query, keep_blank_values=True).get("map", [None])[0]
+            self._send(app.index(browse))
 
         def do_POST(self):
             form = self._form()
@@ -262,7 +326,7 @@ def make_handler(app: SetupApp):
                     app.finish_link(form.get("code", ""))
                     app.flash("Dropbox is gekoppeld. Kies nu welke presentatie dit scherm toont.")
                 elif self.path == "/folder":
-                    app.flash(app.choose_folder(form.get("name", "")))
+                    app.flash(app.choose_folder(form.get("path", "")))
                 else:
                     return self._send(app.page("<p>Niet gevonden.</p>"), HTTPStatus.NOT_FOUND)
             except (ValueError, dropbox_sync.DropboxError, OSError) as e:

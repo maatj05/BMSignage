@@ -6,8 +6,8 @@
 [dropbox]
 # Hierin staan de presentaties; elke submap is een presentatie.
 base_folder = "/Mediakranten/Present-it"
-# Vult het App key-veld op de instelpagina alvast in (optioneel).
-app_key = ""
+# App key van de Dropbox-app; standaard die van BMSignage (q34alcs3we24vx7).
+# app_key = ""
 
 [web]
 port = 8080

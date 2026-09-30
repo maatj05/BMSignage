@@ -35,7 +35,9 @@ Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
    (`sudo raspi-config` → Localisation → Timezone), anders klopt het
    aan/uit-schema niet.
 
-2. **Dropbox-app maken** op <https://www.dropbox.com/developers/apps>:
+2. **Dropbox-app** (de BMSignage-app met App key `q34alcs3we24vx7` bestaat
+   al en is standaard ingesteld; alleen nodig voor een eigen app) op
+   <https://www.dropbox.com/developers/apps>:
    - *Scoped access* → **Full Dropbox** (de presentaties staan in
      `Mediakranten/Present-it`, buiten een app-map).
    - Tabblad *Permissions*: vink `files.metadata.read`,
@@ -55,10 +57,12 @@ Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
    *"Dit scherm is nog niet ingesteld"* met een adres zoals
    `http://192.168.1.83:8080`. Open dat adres op een laptop of telefoon in
    hetzelfde netwerk en:
-   1. vul de App key in → **Open Dropbox** → *Toestaan* → plak de code;
-   2. kies de presentatie (een submap van `Mediakranten/Present-it`).
+   1. **Verder** (de App key van BMSignage staat al ingevuld) →
+      **Open Dropbox** → *Toestaan* → plak de code;
+   2. kies de presentatie: een map onder `Mediakranten/Present-it`, op elke diepte.
 
-   Het scherm begint direct. Staat er in die map nog geen `config.toml`, dan
+   Een map met submappen kun je openen (›) om een submap te kiezen; met
+   **Tonen** kies je de map zelf. Het scherm begint direct. Staat er in die map nog geen `config.toml`, dan
    wordt er een aangemaakt met de standaardinstellingen en uitleg.
 
 Later een andere presentatie tonen of opnieuw koppelen: open dezelfde

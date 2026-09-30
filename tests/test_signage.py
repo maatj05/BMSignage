@@ -198,8 +198,11 @@ class StateTest(unittest.TestCase):
 class FakeDropbox:
     """Stands in for DropboxClient on the setup page."""
 
-    def __init__(self, folders=("Receptie", "Kantine"), existing=(), can_write=True):
-        self.folders = list(folders)
+    BASE = "/Mediakranten/Present-it"
+
+    def __init__(self, folders=("Receptie", "Kantine"), existing=(), can_write=True, tree=None):
+        # tree: relative path ("" = base) -> subfolder names
+        self.tree = tree if tree is not None else {"": list(folders)}
         self.existing = set(existing)
         self.can_write = can_write
         self.uploads = []
@@ -208,9 +211,23 @@ class FakeDropbox:
         self.last_credentials = (app_key, token)
         return self
 
+    @property
+    def folders(self):
+        return self.tree[""]
+
+    @folders.setter
+    def folders(self, names):
+        self.tree[""] = list(names)
+
     def list_subfolders(self, path):
-        assert path == "/Mediakranten/Present-it", path
-        return sorted(self.folders, key=str.lower)
+        assert path == self.BASE or path.startswith(self.BASE + "/"), path
+        relative = path[len(self.BASE) + 1:]
+        if relative not in self.tree and relative:
+            parent, _, name = relative.rpartition("/")
+            if name in self.tree.get(parent, []):
+                return []  # exists, no subfolders
+            raise DropboxError("Dropbox 409: path/not_found/")
+        return sorted(self.tree[relative], key=str.lower)
 
     def upload_if_missing(self, path, content):
         if not self.can_write:
@@ -250,9 +267,9 @@ class SetupWebTest(unittest.TestCase):
         with urllib.request.urlopen(self.base + "/") as r:
             return r.read().decode()
 
-    def post(self, path, **fields):
+    def post(self, url, **fields):
         data = urllib.parse.urlencode(fields).encode()
-        with urllib.request.urlopen(self.base + path, data=data) as r:  # follows the 303 to /
+        with urllib.request.urlopen(self.base + url, data=data) as r:  # follows the 303 to /
             return r.read().decode()
 
     def test_full_setup_flow(self):
@@ -275,16 +292,16 @@ class SetupWebTest(unittest.TestCase):
         self.assertIn("Receptie", page)
         self.assertIn("Kantine", page)
 
-        page = self.post("/folder", name="Receptie")
+        page = self.post("/folder", path="Receptie")
         self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Receptie")
         self.assertEqual(self.dropbox.uploads[0][0], "/Mediakranten/Present-it/Receptie/config.toml")
         tomllib.loads(self.dropbox.uploads[0][1].decode())  # the template is valid TOML
         self.assertIn("Er staat nu een config.toml", page)
-        self.assertIn("nu op het scherm", page)
+        self.assertIn("✓ op het scherm", page)
         self.assertIn("Status", page)
 
         self.dropbox.existing.add("/Mediakranten/Present-it/Kantine/config.toml")
-        page = self.post("/folder", name="Kantine")
+        page = self.post("/folder", path="Kantine")
         self.assertIn("bestaande config.toml", page)
         self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Kantine")
 
@@ -295,7 +312,9 @@ class SetupWebTest(unittest.TestCase):
 
     def test_rejects_unknown_folder(self):
         self.store.update(app_key="KEY", refresh_token="t")
-        page = self.post("/folder", name="../../Prive")
+        page = self.post("/folder", path="../../Prive")
+        self.assertIn("Ongeldige map", page)
+        page = self.post("/folder", path="Bestaatniet")
         self.assertIn("bestaat niet", page)
         self.assertEqual(self.store.get().folder, "")
         self.assertEqual(self.dropbox.uploads, [])
@@ -303,7 +322,7 @@ class SetupWebTest(unittest.TestCase):
     def test_folder_still_chosen_without_write_permission(self):
         self.store.update(app_key="KEY", refresh_token="t")
         self.dropbox.can_write = False
-        page = self.post("/folder", name="Kantine")
+        page = self.post("/folder", path="Kantine")
         self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Kantine")
         self.assertIn("files.content.write", page)
 
@@ -313,6 +332,53 @@ class SetupWebTest(unittest.TestCase):
         page = self.get()
         self.assertNotIn("<script>x", page)
         self.assertIn("&lt;script&gt;", page)
+
+    def get_path(self, query):
+        with urllib.request.urlopen(self.base + "/?" + urllib.parse.urlencode(query)) as r:
+            return r.read().decode()
+
+    def test_browse_and_choose_nested_folder(self):
+        self.store.update(app_key="KEY", refresh_token="t")
+        self.dropbox.tree = {"": ["Kantine", "Receptie"], "Kantine": ["Zomer 2026", "Winter"],
+                             "Kantine/Zomer 2026": []}
+        page = self.get()
+        self.assertIn("href='/?map=Kantine'", page)
+        page = self.get_path({"map": "Kantine"})
+        self.assertIn("Zomer 2026", page)
+        self.assertIn("Deze map (Kantine) tonen", page)
+        page = self.get_path({"map": "Kantine/Zomer 2026"})
+        self.assertIn("Geen submappen", page)
+
+        page = self.post("/folder", path="Kantine/Zomer 2026")
+        self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Kantine/Zomer 2026")
+        self.assertEqual(self.dropbox.uploads[-1][0],
+                         "/Mediakranten/Present-it/Kantine/Zomer 2026/config.toml")
+        self.assertIn("toont nu &#x27;Kantine/Zomer 2026&#x27;", page)
+        # After choosing, the page opens next to the chosen folder and marks it.
+        self.assertIn("Winter", page)
+        self.assertIn("✓ op het scherm", page)
+        self.assertIn("href='/?map='", page)  # breadcrumb back to the top level
+        page = self.get_path({"map": ""})
+        self.assertIn("(bevat de huidige)", page)  # Kantine, seen from the top
+
+        page = self.post("/folder", path="Kantine")  # a parent can be chosen too
+        self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Kantine")
+
+    def test_browse_bad_path_falls_back(self):
+        self.store.update(app_key="KEY", refresh_token="t")
+        page = self.get_path({"map": "../x"})
+        self.assertIn("Receptie", page)
+        page = self.get_path({"map": "Bestaatniet"})
+        self.assertIn("Kan de mappen niet ophalen", page)
+
+    def test_default_app_key(self):
+        self.assertEqual(settings_mod.Settings().app_key, "q34alcs3we24vx7")
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "settings.toml"
+            path.write_text('[dropbox]\napp_key = ""\n')
+            self.assertEqual(settings_mod.load(path).app_key, "q34alcs3we24vx7")
+            path.write_text('[dropbox]\napp_key = "eigen"\n')
+            self.assertEqual(settings_mod.load(path).app_key, "eigen")
 
     def test_finish_without_start(self):
         page = self.post("/link/finish", code="goede-code")
