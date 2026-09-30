@@ -24,7 +24,8 @@ instelpagina http://<pi>:8080: Dropbox koppelen, presentatie kiezen
 - **Fouten in config.toml** zetten het scherm niet op zwart: de vorige
   instellingen blijven gelden en de fout komt in het logboek.
 
-Ondersteund: `jpg jpeg png gif webp bmp` en `mp4 m4v mov mkv avi webm`.
+Ondersteund: `jpg jpeg png gif webp bmp` en
+`mp4 m4v mov mkv avi webm wmv asf mpg mpeg ts mts m2ts 3gp flv`.
 Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
 1080p H.264 (zoals de meeste telefoons en camera's opnemen).
 

@@ -100,6 +100,12 @@ class PlaylistTest(unittest.TestCase):
         slides = playlist.build(self.dir, cfg, dt.date(2026, 2, 1))
         self.assertEqual(slides[-1].duration, 30)
 
+    def test_media_kinds(self):
+        self.assertEqual(playlist.media_kind(Path("Film.WMV")), "video")
+        self.assertEqual(playlist.media_kind(Path("clip.mpeg")), "video")
+        self.assertEqual(playlist.media_kind(Path("foto.JPG")), "image")
+        self.assertIsNone(playlist.media_kind(Path("notes.txt")))
+
     def test_interleave(self):
         slides = [playlist.Slide(Path(str(i)), "image", 1) for i in range(5)]
         news = [playlist.Slide(Path("n1"), "image", 1), playlist.Slide(Path("n2"), "image", 1)]

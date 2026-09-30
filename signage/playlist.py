@@ -13,7 +13,8 @@ from pathlib import Path
 from .content_config import CONFIG_FILENAME, ContentConfig
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm"}
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".wmv", ".asf",
+                    ".mpg", ".mpeg", ".ts", ".mts", ".m2ts", ".3gp", ".flv"}
 
 
 @dataclass(frozen=True)
