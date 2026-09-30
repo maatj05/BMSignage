@@ -22,7 +22,10 @@ BASE_ARGS = [
     "--fullscreen",
     "--no-terminal",
     "--no-osc",
-    "--osd-level=0",
+    "--osd-level=1",  # only our own messages (osd-msg1); no key bindings produce others
+    "--osd-font-size=44",
+    "--osd-align-x=center",
+    "--osd-align-y=center",
     "--no-input-default-bindings",
     "--cursor-autohide=always",
 ]
@@ -37,6 +40,8 @@ class Mpv:
         self._buffer = b""
         self._events: list[dict] = []
         self._request_id = 0
+        self._message = ""
+        self._playing = False
 
     # --- process management -------------------------------------------------
 
@@ -74,7 +79,7 @@ class Mpv:
             except subprocess.TimeoutExpired:
                 self.process.kill()
         self.process = None
-        self._buffer, self._events = b"", []
+        self._buffer, self._events, self._message, self._playing = b"", [], "", False
 
     # --- IPC ----------------------------------------------------------------
 
@@ -134,9 +139,11 @@ class Mpv:
     def play(self, slide: Slide) -> str | None:
         """Shows a slide and blocks until it is done. Returns the end reason."""
         self.ensure_running()
+        self.show_message("")
         if slide.kind == "image":
             self.command("set_property", "image-display-duration", slide.duration)
         self._events.clear()
+        self._playing = True
         self.command("loadfile", str(slide.path), "replace")
         # Skip the end-file of whatever was playing before; ours follows start-file.
         if not self._wait_event({"start-file"}, timeout=15):
@@ -157,3 +164,16 @@ class Mpv:
         """Clears the screen to black."""
         self.ensure_running()
         self.command("stop")
+        self._playing = False
+        self.show_message("")
+
+    def show_message(self, text: str) -> None:
+        """Shows text on a black screen until replaced or cleared. Repeating the
+        same text is cheap and doesn't flicker, so callers can simply keep calling."""
+        self.ensure_running()
+        if text and self._playing:
+            self.command("stop")
+            self._playing = False
+        if text != self._message:
+            self.command("set_property", "osd-msg1", text)
+            self._message = text

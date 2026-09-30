@@ -3,13 +3,18 @@ import hashlib
 import os
 import random
 import tempfile
+import threading
 import tomllib
 import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
-from signage import playlist
+from signage import playlist, settings as settings_mod, web
 from signage.content_config import ConfigError, ContentConfigLoader, parse, parse_ranges
-from signage.dropbox_sync import FolderSync, content_hash
+from signage.dropbox_sync import DropboxError, FolderSync, content_hash
+from signage.state import State, StateStore, SyncStatus
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "voorbeeld" / "config.toml"
 
@@ -147,9 +152,176 @@ class SyncTest(unittest.TestCase):
             self.assertEqual((local / "a.jpg").read_bytes(), b"ONE")
             self.assertFalse((local / "B.mp4").exists())
 
+    def test_switching_folder_clears_old_files_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            local = Path(d) / "media"
+            FolderSync(FakeClient({"old.jpg": b"1", "same.jpg": b"s"}), "/Present-it/A", local).sync()
+            client = FakeClient({"new.jpg": b"2", "same.jpg": b"s"})
+            seen_during_download = []
+            original = client.download
+            client.download = lambda p, dest: (seen_during_download.append(
+                sorted(f.name for f in local.iterdir() if not f.name.startswith("."))), original(p, dest))
+            FolderSync(client, "/Present-it/B", local).sync()
+            self.assertEqual(seen_during_download[0], [])  # old.jpg gone before downloading
+            self.assertEqual(sorted(f.name for f in local.iterdir() if not f.name.startswith(".")),
+                             ["new.jpg", "same.jpg"])
+            client.downloads.clear()
+            FolderSync(client, "/present-it/b", local).sync()  # same folder, other case
+            self.assertEqual(client.downloads, [])
+
     def test_root_folder(self):
         self.assertEqual(FolderSync(None, "/", Path("x")).remote_folder, "")
         self.assertEqual(FolderSync(None, "", Path("x")).remote_folder, "")
+
+
+class StateTest(unittest.TestCase):
+    def test_persists_privately_and_notifies(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "sub" / "state.json"
+            store = StateStore(path, State(app_key="default"))
+            self.assertFalse(store.get().linked)
+            seen = []
+            store.on_change(seen.append)
+            store.update(refresh_token="tok", folder="/x/y")
+            self.assertEqual(seen[-1].folder, "/x/y")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            reloaded = StateStore(path, State(app_key="other", folder="/ignored"))
+            self.assertEqual(reloaded.get(), State("default", "tok", "/x/y"))
+            self.assertTrue(reloaded.get().configured)
+
+    def test_settings_file_is_optional(self):
+        s = settings_mod.load(Path("/nonexistent/settings.toml"))
+        self.assertEqual(s.base_folder, "/Mediakranten/Present-it")
+        self.assertEqual(s.web_port, 8080)
+
+
+class FakeDropbox:
+    """Stands in for DropboxClient on the setup page."""
+
+    def __init__(self, folders=("Receptie", "Kantine"), existing=(), can_write=True):
+        self.folders = list(folders)
+        self.existing = set(existing)
+        self.can_write = can_write
+        self.uploads = []
+
+    def __call__(self, app_key, token):  # used as client_factory
+        self.last_credentials = (app_key, token)
+        return self
+
+    def list_subfolders(self, path):
+        assert path == "/Mediakranten/Present-it", path
+        return sorted(self.folders, key=str.lower)
+
+    def upload_if_missing(self, path, content):
+        if not self.can_write:
+            raise DropboxError("Dropbox 401: missing_scope/files.content.write")
+        self.uploads.append((path, content))
+        if path in self.existing:
+            return False
+        self.existing.add(path)
+        return True
+
+
+class SetupWebTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = StateStore(Path(self.tmp.name) / "state.json")
+        self.dropbox = FakeDropbox()
+        self.exchanged = []
+
+        def exchange(app_key, code, verifier):
+            self.exchanged.append((app_key, code))
+            if code.strip() != "goede-code":
+                raise DropboxError("Dropbox 400: invalid_grant")
+            return "refresh-123"
+
+        self.app = web.SetupApp(self.store, "Mediakranten/Present-it/", SyncStatus(), "KEY",
+                                client_factory=self.dropbox, exchange_code=exchange)
+        self.server = web.ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler(self.app))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def get(self):
+        with urllib.request.urlopen(self.base + "/") as r:
+            return r.read().decode()
+
+    def post(self, path, **fields):
+        data = urllib.parse.urlencode(fields).encode()
+        with urllib.request.urlopen(self.base + path, data=data) as r:  # follows the 303 to /
+            return r.read().decode()
+
+    def test_full_setup_flow(self):
+        page = self.get()
+        self.assertIn("Dropbox koppelen", page)
+        self.assertIn("value='KEY'", page)  # app key from settings.toml prefilled
+
+        page = self.post("/link/start", app_key="KEY")
+        self.assertIn("https://www.dropbox.com/oauth2/authorize?", page)
+        self.assertIn("code_challenge_method=S256", page)
+
+        page = self.post("/link/finish", code="verkeerd")
+        self.assertIn("Dat lukte niet", page)
+        self.assertFalse(self.store.get().linked)
+
+        page = self.post("/link/finish", code=" goede-code ")
+        self.assertIn("Dropbox is gekoppeld", page)
+        self.assertEqual(self.store.get(), State("KEY", "refresh-123", ""))
+        self.assertNotIn("refresh-123", page)  # token never shown
+        self.assertIn("Receptie", page)
+        self.assertIn("Kantine", page)
+
+        page = self.post("/folder", name="Receptie")
+        self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Receptie")
+        self.assertEqual(self.dropbox.uploads[0][0], "/Mediakranten/Present-it/Receptie/config.toml")
+        tomllib.loads(self.dropbox.uploads[0][1].decode())  # the template is valid TOML
+        self.assertIn("Er staat nu een config.toml", page)
+        self.assertIn("nu op het scherm", page)
+        self.assertIn("Status", page)
+
+        self.dropbox.existing.add("/Mediakranten/Present-it/Kantine/config.toml")
+        page = self.post("/folder", name="Kantine")
+        self.assertIn("bestaande config.toml", page)
+        self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Kantine")
+
+    def test_template_config_parses_with_schedule_off(self):
+        cfg = parse(tomllib.loads(web.config_template().decode()))
+        self.assertFalse(cfg.schedule.enabled)
+        self.assertEqual(cfg.files, {})
+
+    def test_rejects_unknown_folder(self):
+        self.store.update(app_key="KEY", refresh_token="t")
+        page = self.post("/folder", name="../../Prive")
+        self.assertIn("bestaat niet", page)
+        self.assertEqual(self.store.get().folder, "")
+        self.assertEqual(self.dropbox.uploads, [])
+
+    def test_folder_still_chosen_without_write_permission(self):
+        self.store.update(app_key="KEY", refresh_token="t")
+        self.dropbox.can_write = False
+        page = self.post("/folder", name="Kantine")
+        self.assertEqual(self.store.get().folder, "/Mediakranten/Present-it/Kantine")
+        self.assertIn("files.content.write", page)
+
+    def test_escapes_folder_names(self):
+        self.store.update(app_key="KEY", refresh_token="t")
+        self.dropbox.folders = ["<script>x</script>"]
+        page = self.get()
+        self.assertNotIn("<script>x", page)
+        self.assertIn("&lt;script&gt;", page)
+
+    def test_finish_without_start(self):
+        page = self.post("/link/finish", code="goede-code")
+        self.assertIn("Begin opnieuw", page)
+
+    def test_unknown_path(self):
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(self.base + "/nope")
+        self.assertEqual(e.exception.code, 404)
 
 
 if __name__ == "__main__":

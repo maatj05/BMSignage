@@ -10,7 +10,6 @@ sudo apt-get install -y mpv python3-requests v4l-utils
 
 if [ ! -f "$DIR/settings.toml" ]; then
     cp "$DIR/settings.example.toml" "$DIR/settings.toml"
-    echo "settings.toml aangemaakt: vul de Dropbox-gegevens in en start opnieuw."
 fi
 
 sed -e "s|__USER__|$USER_NAME|g" -e "s|__DIR__|$DIR|g" \
@@ -22,4 +21,6 @@ sudo systemctl disable --now getty@tty1.service || true
 sudo systemctl daemon-reload
 sudo systemctl enable dropbox-signage.service
 sudo systemctl restart dropbox-signage.service
-echo "Klaar. Logboek bekijken: journalctl -u dropbox-signage -f"
+IP="$(hostname -I | cut -d' ' -f1)"
+echo "Klaar. Stel het scherm in via http://$IP:8080"
+echo "Logboek bekijken: journalctl -u dropbox-signage -f"

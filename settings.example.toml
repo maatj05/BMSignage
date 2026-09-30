@@ -1,16 +1,22 @@
 # Lokale instellingen op de Raspberry Pi (niet in Dropbox!).
-# Kopieer naar settings.toml en vul de Dropbox-gegevens in.
+# Alles heeft een standaardwaarde; dit bestand is dus optioneel.
+# Dropbox koppelen en de presentatie kiezen doe je op de instelpagina:
+# http://<ip-adres-van-de-pi>:8080 (het adres staat op het scherm).
 
 [dropbox]
+# Hierin staan de presentaties; elke submap is een presentatie.
+base_folder = "/Mediakranten/Present-it"
+# Vult het App key-veld op de instelpagina alvast in (optioneel).
 app_key = ""
-refresh_token = ""        # krijg je met: python3 get_refresh_token.py <app_key>
-# Map in Dropbox. Bij een app met "App folder"-toegang is "" de app-map zelf
-# (Dropbox/Apps/<appnaam>). Bij "Full Dropbox" bv. "/Scherm".
-folder = ""
+
+[web]
+port = 8080
 
 [paths]
-# Lokale kopie van de Dropbox-map; hieruit wordt afgespeeld (werkt dus ook offline).
+# Lokale kopie van de gekozen map; hieruit wordt afgespeeld (werkt dus ook offline).
 cache_dir = "~/.cache/dropbox-signage"
+# Koppeling en gekozen presentatie, bijgehouden door de instelpagina.
+state_file = "~/.config/dropbox-signage/state.json"
 
 [player]
 # Werkt op Raspberry Pi OS Lite (zonder desktop). Met desktop: ["--hwdec=auto-safe"]

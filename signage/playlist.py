@@ -32,12 +32,16 @@ def media_kind(path: Path) -> str | None:
     return None
 
 
+def media_files(media_dir: Path) -> list[Path]:
+    if not media_dir.is_dir():
+        return []
+    return [p for p in media_dir.iterdir()
+            if p.is_file() and not p.name.startswith(".") and p.name.lower() != CONFIG_FILENAME
+            and media_kind(p)]
+
+
 def build(media_dir: Path, cfg: ContentConfig, today: dt.date, rng=random) -> list[Slide]:
-    files = [
-        p for p in media_dir.iterdir()
-        if p.is_file() and not p.name.startswith(".") and p.name.lower() != CONFIG_FILENAME
-        and media_kind(p)
-    ] if media_dir.is_dir() else []
+    files = media_files(media_dir)
 
     if cfg.order == "newest":
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)

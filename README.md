@@ -1,14 +1,20 @@
 # Dropbox op het scherm
 
 Toont de foto's en video's uit een Dropbox-map op het scherm dat aan een
-Raspberry Pi 3 hangt. Wie de map beheert, stuurt alles aan via Dropbox:
-bestanden toevoegen of weghalen, en bijzonderheden regelen in `config.toml`.
+Raspberry Pi 3 hangt. Elke submap van `Mediakranten/Present-it` is een
+presentatie; welke dit scherm toont kies je op een instelpagina. Wie de map
+beheert, stuurt verder alles aan via Dropbox: bestanden toevoegen of
+weghalen, en bijzonderheden regelen in `config.toml`.
 
 ## Hoe het werkt
 
 ```
-Dropbox-map ──(elke 5 min, alleen wijzigingen)──▶ lokale kopie op de Pi ──▶ mpv ──▶ HDMI-scherm
-                    config.toml ───────────────▶ duur, volgorde, schema, uitzonderingen
+Mediakranten/Present-it/<presentatie>
+    │  (elke 5 min, alleen wijzigingen)
+    ▼
+lokale kopie op de Pi ──▶ mpv ──▶ HDMI-scherm
+    ▲
+instelpagina http://<pi>:8080: Dropbox koppelen, presentatie kiezen
 ```
 
 - **Offline bestendig:** er wordt afgespeeld van de lokale kopie. Valt het
@@ -30,10 +36,12 @@ Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
    aan/uit-schema niet.
 
 2. **Dropbox-app maken** op <https://www.dropbox.com/developers/apps>:
-   - *Scoped access*, en kies **App folder** (de Pi ziet dan alleen
-     `Dropbox/Apps/<appnaam>`, de veiligste keuze).
-   - Tabblad *Permissions*: vink `files.metadata.read` en
-     `files.content.read` aan en klik *Submit*.
+   - *Scoped access* → **Full Dropbox** (de presentaties staan in
+     `Mediakranten/Present-it`, buiten een app-map).
+   - Tabblad *Permissions*: vink `files.metadata.read`,
+     `files.content.read` en `files.content.write` aan en klik *Submit*.
+     Het schrijfrecht is alleen nodig om `config.toml` in een nieuw
+     gekozen map te zetten.
    - Noteer de **App key**.
 
 3. **Code op de Pi zetten en installeren:**
@@ -42,20 +50,30 @@ Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
    ./install.sh
    ```
 
-4. **Pi koppelen aan Dropbox:**
-   ```sh
-   python3 get_refresh_token.py <app key>
-   ```
-   Volg de stappen en zet de uitkomst in `settings.toml`. Pas daar ook
-   `folder` en de aan/uit-methode aan (zie hieronder), en herstart:
-   ```sh
-   sudo systemctl restart dropbox-signage
-   ```
+4. **Instellen via de instelpagina.** Het scherm toont nu
+   *"Dit scherm is nog niet ingesteld"* met een adres zoals
+   `http://192.168.1.83:8080`. Open dat adres op een laptop of telefoon in
+   hetzelfde netwerk en:
+   1. vul de App key in → **Open Dropbox** → *Toestaan* → plak de code;
+   2. kies de presentatie (een submap van `Mediakranten/Present-it`).
 
-5. **Map vullen:** zet foto's, video's en een `config.toml` (voorbeeld in
-   [`voorbeeld/config.toml`](voorbeeld/config.toml)) in de Dropbox-map.
+   Het scherm begint direct. Staat er in die map nog geen `config.toml`, dan
+   wordt er een aangemaakt met de standaardinstellingen en uitleg.
+
+Later een andere presentatie tonen of opnieuw koppelen: open dezelfde
+pagina weer. Die toont ook de status (laatste update, aantal bestanden,
+fouten).
 
 Logboek bekijken: `journalctl -u dropbox-signage -f`
+
+De instelpagina is bereikbaar voor iedereen in het lokale netwerk. Hij toont
+nooit het Dropbox-token, maar wie hem kan openen kan wel een andere
+presentatie kiezen. Zet de Pi dus niet in een openbaar gastnetwerk.
+
+`settings.toml` op de Pi is optioneel; daar staan hardware-instellingen
+(zie [`settings.example.toml`](settings.example.toml)), zoals de basismap
+en hoe het scherm uit gaat. Zonder instelpagina koppelen kan ook nog:
+`python3 get_refresh_token.py <app key>`.
 
 ## config.toml (in Dropbox)
 
