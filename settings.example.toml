@@ -20,7 +20,7 @@ state_file = "~/.config/dropbox-signage/state.json"
 
 [player]
 # Werkt op Raspberry Pi OS Lite (zonder desktop). Met desktop: ["--hwdec=auto-safe"]
-mpv_args = ["--vo=gpu", "--gpu-context=drm", "--hwdec=auto-safe"]
+mpv_args = ["--vo=gpu", "--gpu-context=drm", "--hwdec=v4l2m2m", "--profile=fast"]
 
 [power]
 # Hoe het scherm uit gaat buiten de tijden in [schedule] van config.toml:

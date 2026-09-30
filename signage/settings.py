@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_APP_KEY = "q34alcs3we24vx7"  # public client id of the Dropbox app, not a secret
-DEFAULT_MPV_ARGS = ["--vo=gpu", "--gpu-context=drm", "--hwdec=auto-safe"]
+# v4l2m2m is the Pi's hardware H.264 decoder without copying frames back to RAM; on a
+# Pi 3 it played 1080p without dropped frames where "auto-safe" and "-copy" dropped many.
+DEFAULT_MPV_ARGS = ["--vo=gpu", "--gpu-context=drm", "--hwdec=v4l2m2m", "--profile=fast"]
 
 
 @dataclass
