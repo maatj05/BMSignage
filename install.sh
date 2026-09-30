@@ -6,7 +6,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 USER_NAME="${SUDO_USER:-$(id -un)}"
 
 sudo apt-get update
-sudo apt-get install -y mpv python3-requests v4l-utils
+sudo apt-get install -y mpv ffmpeg python3-requests v4l-utils
 
 if [ ! -f "$DIR/settings.toml" ]; then
     cp "$DIR/settings.example.toml" "$DIR/settings.toml"

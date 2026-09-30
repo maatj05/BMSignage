@@ -279,6 +279,8 @@ class SetupApp:
         s = self.status
         last = s.last_sync.strftime("%d-%m-%Y %H:%M") if s.last_sync else "nog niet"
         rows = [("Map", state.folder), ("Bestanden", s.file_count), ("Laatst bijgewerkt", last)]
+        if s.converting:
+            rows.append(("Bezig met omzetten", s.converting))
         error = f"<p class='err'>Laatste fout: {esc(s.last_error)}</p>" if s.last_error else ""
         dl = "".join(f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in rows)
         return f"<section><h2>Status</h2>{error}<dl>{dl}</dl></section>"

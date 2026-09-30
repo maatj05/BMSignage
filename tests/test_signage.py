@@ -2,6 +2,8 @@ import datetime as dt
 import hashlib
 import os
 import random
+import shutil
+import subprocess
 import tempfile
 import threading
 import tomllib
@@ -15,6 +17,7 @@ from signage import playlist, settings as settings_mod, web
 from signage.content_config import ConfigError, ContentConfigLoader, parse, parse_ranges
 from signage.dropbox_sync import DropboxError, FolderSync, content_hash
 from signage.state import State, StateStore, SyncStatus
+from signage.transcode import Transcoder
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "voorbeeld" / "config.toml"
 
@@ -394,6 +397,70 @@ class SetupWebTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(self.base + "/nope")
         self.assertEqual(e.exception.code, 404)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
+class TranscodeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.media = Path(self.tmp.name) / "media"
+        self.out = Path(self.tmp.name) / "converted"
+        self.media.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def make_wmv(self, name, size="320x240", seconds=1):
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        f"testsrc=duration={seconds}:size={size}:rate=60", "-f", "lavfi", "-i",
+                        f"sine=duration={seconds}", "-c:v", "wmv2", "-c:a", "wmav2",
+                        str(self.media / name)], check=True)
+
+    def probe(self, path):
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                              "stream=codec_name,width,height,avg_frame_rate", "-of", "csv=p=0",
+                              str(path)], capture_output=True, text=True, check=True).stdout
+        return out.strip()
+
+    def test_converts_and_playlist_uses_mp4(self):
+        self.make_wmv("film.wmv", size="2560x1440")
+        (self.media / "foto.jpg").write_bytes(b"x")
+        status = SyncStatus()
+        t = Transcoder(self.media, self.out, status)
+        cfg = parse({"files": {"film.wmv": {"duration": 7}}})
+
+        before = playlist.build(self.media, cfg, dt.date.today(), converted=t.playable)
+        self.assertEqual([s.path.name for s in before], ["foto.jpg"])  # not ready: skipped
+
+        t.run_once()
+        self.assertEqual(status.converting, "")
+        mp4 = t.playable(self.media / "film.wmv")
+        self.assertEqual(self.probe(mp4), "h264,1920,1080,30/1")  # downscaled, 30 fps cap
+        slides = playlist.build(self.media, cfg, dt.date.today(), converted=t.playable)
+        self.assertEqual([(s.path, s.kind, s.duration) for s in slides],
+                         [(mp4, "video", 7), (self.media / "foto.jpg", "image", 10)])
+        self.assertEqual(t.pending(), [])
+
+        # A replaced source is converted again and the old conversion removed.
+        self.make_wmv("film.wmv", seconds=2)
+        os.utime(self.media / "film.wmv", (5, 5))
+        self.assertEqual(t.pending(), [self.media / "film.wmv"])
+        t.run_once()
+        self.assertEqual(len(list(self.out.iterdir())), 1)
+        self.assertEqual(self.probe(t.playable(self.media / "film.wmv")), "h264,320,240,30/1")
+
+        # A deleted source takes its conversion with it.
+        (self.media / "film.wmv").unlink()
+        t.run_once()
+        self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_broken_file_is_not_retried_forever(self):
+        (self.media / "kapot.wmv").write_bytes(b"geen video")
+        t = Transcoder(self.media, self.out)
+        t.run_once()
+        self.assertIsNone(t.playable(self.media / "kapot.wmv"))
+        self.assertEqual(t.pending(), [])
+        self.assertEqual([f for f in self.out.iterdir()], [])  # no leftover .part file
 
 
 if __name__ == "__main__":

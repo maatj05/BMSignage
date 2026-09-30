@@ -26,7 +26,10 @@ instelpagina http://<pi>:8080: Dropbox koppelen, presentatie kiezen
 
 Ondersteund: `jpg jpeg png gif webp bmp` en
 `mp4 m4v mov mkv avi webm wmv asf mpg mpeg ts mts m2ts 3gp flv`.
-Andere bestanden worden genegeerd. Houd video's voor de Pi 3 op maximaal
+Andere bestanden worden genegeerd. WMV/ASF-video's kan de Pi niet vloeiend
+afspelen; die zet hij na het downloaden zelf om naar MP4 (dat duurt op een
+Pi 3 een paar minuten per video, de instelpagina toont de voortgang). Tot
+dan wordt zo'n video overgeslagen. Houd video's voor de Pi 3 op maximaal
 1080p H.264 (zoals de meeste telefoons en camera's opnemen).
 
 ## Installatie

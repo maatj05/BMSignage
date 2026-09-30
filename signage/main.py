@@ -16,6 +16,7 @@ from .dropbox_sync import DropboxClient, FolderSync
 from .player import Mpv
 from .power import ScreenPower
 from .state import State, StateStore, SyncStatus
+from .transcode import Transcoder, TranscodeThread
 
 log = logging.getLogger("signage")
 
@@ -24,13 +25,14 @@ class SyncThread(threading.Thread):
     """Keeps the local copy in step with the chosen Dropbox folder."""
 
     def __init__(self, store: StateStore, media_dir: Path, config_loader: ContentConfigLoader,
-                 status: SyncStatus, client_factory=DropboxClient):
+                 status: SyncStatus, client_factory=DropboxClient, after_sync=lambda: None):
         super().__init__(daemon=True, name="dropbox-sync")
         self.store = store
         self.media_dir = media_dir
         self.config_loader = config_loader
         self.status = status
         self.client_factory = client_factory
+        self.after_sync = after_sync
         self.wake = threading.Event()
         self._client = None
         self._client_key = None
@@ -56,6 +58,7 @@ class SyncThread(threading.Thread):
             log.error("Dropbox sync failed: %s", e)
             self.status.last_error = str(e)
         self.status.file_count = len(playlist.media_files(self.media_dir))
+        self.after_sync()
 
     def run(self) -> None:
         while True:
@@ -75,7 +78,11 @@ def run(settings: settings_mod.Settings) -> None:
                                                   settings.folder))
     config_loader = ContentConfigLoader(media_dir / CONFIG_FILENAME)
     status = SyncStatus()
-    SyncThread(store, media_dir, config_loader, status).start()
+    transcoder = Transcoder(media_dir, settings.cache_dir / "converted", status)
+    transcode_thread = TranscodeThread(transcoder)
+    transcode_thread.start()
+    SyncThread(store, media_dir, config_loader, status,
+               after_sync=transcode_thread.wake.set).start()
     web.serve(web.SetupApp(store, settings.base_folder, status, settings.app_key), settings.web_port)
 
     player = Mpv(settings.mpv_args, str(Path(tempfile.gettempdir()) / "dropbox-signage-mpv.sock"))
@@ -106,12 +113,14 @@ def run(settings: settings_mod.Settings) -> None:
                 time.sleep(30)
                 continue
 
-            slides = playlist.build(media_dir, cfg, dt.date.today())
+            slides = playlist.build(media_dir, cfg, dt.date.today(),
+                                    converted=transcoder.playable)
             if not slides:
                 name = state.folder.rsplit("/", 1)[-1]
                 player.show_message(f"{name}\n\n" + (
                     f"Kan Dropbox niet bereiken:\n{status.last_error}" if status.last_error else
                     "Bestanden worden opgehaald…" if status.last_sync is None else
+                    "Video's worden omgezet voor dit scherm…" if status.converting else
                     "Deze map bevat nog geen foto's of video's."))
                 time.sleep(2)
                 continue

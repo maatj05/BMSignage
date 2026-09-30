@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .content_config import CONFIG_FILENAME, ContentConfig
+from .transcode import needs_conversion
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".wmv", ".asf",
@@ -41,7 +42,10 @@ def media_files(media_dir: Path) -> list[Path]:
             and media_kind(p)]
 
 
-def build(media_dir: Path, cfg: ContentConfig, today: dt.date, rng=random) -> list[Slide]:
+def build(media_dir: Path, cfg: ContentConfig, today: dt.date, rng=random,
+          converted=lambda path: None) -> list[Slide]:
+    """`converted(path)` gives the playable conversion of a WMV, or None while
+    it isn't ready; such videos are left out until then."""
     files = media_files(media_dir)
 
     if cfg.order == "newest":
@@ -59,6 +63,10 @@ def build(media_dir: Path, cfg: ContentConfig, today: dt.date, rng=random) -> li
         kind = media_kind(path)
         default = cfg.image_duration if kind == "image" else cfg.max_video_duration
         duration = rule.duration if rule.duration is not None else default
+        if needs_conversion(path):
+            path = converted(path)
+            if path is None:
+                continue
         slides.append(Slide(path, kind, duration))
     return slides
 

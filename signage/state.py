@@ -75,3 +75,4 @@ class SyncStatus:
     last_sync: object = None  # datetime of the last successful sync
     last_error: str = ""
     file_count: int = 0
+    converting: str = ""  # what the transcoder is working on, empty when idle
