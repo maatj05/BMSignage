@@ -454,6 +454,16 @@ class TranscodeTest(unittest.TestCase):
         t.run_once()
         self.assertEqual(list(self.out.iterdir()), [])
 
+    def test_decoder_choice_by_width(self):
+        from signage import player
+        self.assertEqual(player.hwdec_for(1920), "v4l2m2m")
+        self.assertEqual(player.hwdec_for(1280), "v4l2m2m")
+        self.assertEqual(player.hwdec_for(720), "v4l2m2m-copy")  # black with zero-copy on a Pi 3
+        self.assertEqual(player.hwdec_for(None), "v4l2m2m")  # unknown: keep the configured one
+        self.make_wmv("pal.wmv", size="720x576")
+        self.assertEqual(player.video_width(self.media / "pal.wmv"), 720)
+        self.assertIsNone(player.video_width(self.media / "missing.mp4"))
+
     def test_broken_file_is_not_retried_forever(self):
         (self.media / "kapot.wmv").write_bytes(b"geen video")
         t = Transcoder(self.media, self.out)

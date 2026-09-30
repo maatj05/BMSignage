@@ -7,6 +7,7 @@ hardware video decoder. When nothing is loaded it shows a black screen.
 import json
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -30,6 +31,29 @@ BASE_ARGS = [
     "--cursor-autohide=always",
 ]
 
+# The Pi's zero-copy decoder (v4l2m2m) shows a black picture for videos whose
+# width is not a multiple of 64, e.g. 720x576 PAL. Those get the copying variant,
+# which is cheap enough at such sizes.
+ZERO_COPY_HWDEC = "v4l2m2m"
+COPY_HWDEC = "v4l2m2m-copy"
+ALIGNMENT = 64
+
+
+def video_width(path: Path) -> int | None:
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width",
+             "-of", "csv=p=0", str(path)], capture_output=True, text=True, timeout=30).stdout
+        return int(out.strip().splitlines()[0])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def hwdec_for(width: int | None) -> str:
+    return COPY_HWDEC if width and width % ALIGNMENT else ZERO_COPY_HWDEC
+
 
 class Mpv:
     def __init__(self, extra_args: list[str], socket_path: str):
@@ -42,6 +66,10 @@ class Mpv:
         self._request_id = 0
         self._message = ""
         self._playing = False
+        # Only switch decoders per video when the zero-copy one is configured.
+        self._per_video_hwdec = f"--hwdec={ZERO_COPY_HWDEC}" in extra_args
+        self._hwdec = ZERO_COPY_HWDEC
+        self._widths: dict[tuple[str, float], int | None] = {}
 
     # --- process management -------------------------------------------------
 
@@ -80,6 +108,7 @@ class Mpv:
                 self.process.kill()
         self.process = None
         self._buffer, self._events, self._message, self._playing = b"", [], "", False
+        self._hwdec = ZERO_COPY_HWDEC
 
     # --- IPC ----------------------------------------------------------------
 
@@ -142,6 +171,8 @@ class Mpv:
         self.show_message("")
         if slide.kind == "image":
             self.command("set_property", "image-display-duration", slide.duration)
+        elif self._per_video_hwdec:
+            self._select_hwdec(slide.path)
         self._events.clear()
         self._playing = True
         self.command("loadfile", str(slide.path), "replace")
@@ -159,6 +190,19 @@ class Mpv:
         if event.get("reason") == "error":
             log.warning("mpv could not play %s: %s", slide.path.name, event.get("file_error"))
         return event.get("reason")
+
+    def _select_hwdec(self, path: Path) -> None:
+        try:
+            key = (str(path), path.stat().st_mtime)
+        except FileNotFoundError:
+            return
+        if key not in self._widths:
+            self._widths[key] = video_width(path)
+        hwdec = hwdec_for(self._widths[key])
+        if hwdec != self._hwdec:
+            log.info("Using %s for %s (width %s)", hwdec, path.name, self._widths[key])
+            self.command("set_property", "hwdec", hwdec)
+            self._hwdec = hwdec
 
     def stop(self) -> None:
         """Clears the screen to black."""
